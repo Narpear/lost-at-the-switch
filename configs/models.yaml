@@ -1,0 +1,26 @@
+# Drafter/target pairs. ASSUMPTION: Hugging Face model IDs below are our best guess
+# for the checkpoints Paudel et al. (2026) used -- confirm base vs instruct and exact
+# IDs against their paper/code before running baselines.
+pairs:
+  qwen:
+    drafter: Qwen/Qwen3.5-0.8B
+    target: Qwen/Qwen3.5-9B
+    # If scripts/sanity_check.py reports crop != recompute (e.g. hybrid linear-attention
+    # layers), switch this to "recompute".
+    cache_mode: crop
+  llama:
+    drafter: meta-llama/Llama-3.2-1B        # gated: request access on HF first
+    target: meta-llama/Llama-3.2-3B
+    cache_mode: crop
+
+# Matches Paudel et al. setup as described in our proposal (Sec. 5, B1).
+# ASSUMPTION: temperature 1.0 (the proposal does not state it).
+sampling:
+  temperature: 1.0
+  top_k: 100
+  top_p: 0.9
+gammas: [2, 3, 4]
+max_new_tokens: 128
+seeds: [0, 1, 2, 3, 4]
+switch_window: {k_before: 1, k_after: 2}
+ngram_orders: [2, 3, 4]
