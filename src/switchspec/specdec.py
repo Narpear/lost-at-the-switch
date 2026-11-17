@@ -97,22 +97,47 @@ def verify(draft_tokens: Sequence[int], q: torch.Tensor, p: torch.Tensor,
 # --------------------------------------------------------------------------- #
 # Model wrappers
 # --------------------------------------------------------------------------- #
-class CachedLM:
-    """Wraps an HF causal LM with an incremental KV cache that can be rolled back.
+_LINEAR_STATE_ATTRS = ("conv_states", "recurrent_states", "is_conv_states_initialized",
+                       "is_recurrent_states_initialized", "has_previous_state", "conv_kernel_size",
+                       "device", "dtype")
 
-    cache_mode="crop": DynamicCache.crop() on rejection (fast; valid for
-        standard attention models).
-    cache_mode="recompute": drop the cache on rejection and re-prefill
-        (slow but always correct, e.g. for hybrid/linear-attention models whose
-        recurrent state cannot be cropped). Run scripts/sanity_check.py to see
-        which mode is valid for a given model.
+
+def _is_linear_layer(layer) -> bool:
+    return hasattr(layer, "recurrent_states") and hasattr(layer, "conv_states")
+
+
+def _copy_state(v):
+    if isinstance(v, torch.Tensor):
+        return v.clone()
+    if isinstance(v, dict):
+        return {k: _copy_state(x) for k, x in v.items()}
+    return v
+
+
+class CachedLM:
+    """Wraps an HF causal LM with an incremental cache that can be rolled back.
+
+    cache_mode:
+      "auto"      pick "snapshot" if the model has linear-attention layers, else "crop".
+      "crop"      DynamicCache.crop() on rejection. Only valid for pure-attention models.
+      "snapshot"  for hybrid models (e.g. Qwen3.5: gated-delta linear attention + full
+                  attention). The recurrent/conv state of linear layers cannot be cropped,
+                  so before each block of new tokens we save a copy of those states (small:
+                  a few MB per layer) and on rejection restore them and slice the KV of the
+                  attention layers back to the same point; accepted tokens are re-fed on
+                  the next call (a handful of tokens, cheap).
+      "recompute" drop the whole cache on rejection and re-prefill. Always correct, slow.
+    Run scripts/sanity_check.py to confirm the chosen mode matches recompute.
     """
 
-    def __init__(self, model, vocab_limit: int, cache_mode: str = "crop"):
-        assert cache_mode in {"crop", "recompute"}
+    MODES = {"auto", "crop", "snapshot", "recompute"}
+
+    def __init__(self, model, vocab_limit: int, cache_mode: str = "auto"):
+        assert cache_mode in self.MODES, cache_mode
         self.model = model
         self.V = vocab_limit
-        self.cache_mode = cache_mode
+        self.requested_mode = cache_mode
+        self.cache_mode = cache_mode if cache_mode != "auto" else None  # resolved on first forward
         self.device = next(model.parameters()).device
         self.reset()
 
@@ -120,28 +145,67 @@ class CachedLM:
         self.cache = None
         self.cached = 0
         self.n_forward = 0
+        self._snap = None   # (cached_len, [per-layer linear state or None])
 
+    # ---- snapshot helpers ------------------------------------------------- #
+    def _take_snapshot(self):
+        layers = getattr(self.cache, "layers", None)
+        if layers is None:
+            self._snap = None
+            return
+        states = []
+        for layer in layers:
+            if _is_linear_layer(layer):
+                states.append({a: _copy_state(getattr(layer, a)) for a in _LINEAR_STATE_ATTRS
+                               if hasattr(layer, a)})
+            else:
+                states.append(None)
+        self._snap = (self.cached, states)
+
+    def _restore_snapshot(self):
+        n, states = self._snap
+        for layer, st in zip(self.cache.layers, states):
+            if st is not None:
+                for a, v in st.items():
+                    setattr(layer, a, v)
+            keys = getattr(layer, "keys", None)
+            if isinstance(keys, torch.Tensor) and keys.numel() and keys.shape[-2] > n:
+                layer.keys = layer.keys[..., :n, :]
+                layer.values = layer.values[..., :n, :]
+        self.cached = n
+
+    # ---- main API ----------------------------------------------------------- #
     @torch.no_grad()
     def forward_new(self, seq: Sequence[int]) -> torch.Tensor:
         """Feed seq[self.cached:], return logits [n_new, V] (float32, on CPU)."""
         new = list(seq[self.cached:])
         assert new, "nothing new to feed"
+        if self.cache_mode == "snapshot" and self._snap is None and self.cache is not None:
+            self._take_snapshot()        # state before this block of new tokens
         ids = torch.tensor([new], device=self.device)
         out = self.model(input_ids=ids, past_key_values=self.cache, use_cache=True)
         self.cache = out.past_key_values
+        if self.cache_mode is None:      # resolve "auto"
+            hybrid = any(_is_linear_layer(l) for l in getattr(self.cache, "layers", []))
+            self.cache_mode = "snapshot" if hybrid else "crop"
         self.cached = len(seq)
         self.n_forward += 1
         return out.logits[0, :, : self.V].float().cpu()
 
     def rollback(self, n: int):
-        """Keep only the first n positions in the cache."""
+        """Make the cache represent exactly the first n positions (or fewer, to be re-fed)."""
+        snap, self._snap = self._snap, None
         if self.cached <= n:
             return
         if self.cache_mode == "crop":
             # negative = "remove this many tokens"; works on transformers 4.x and 5.x
             self.cache.crop(n - self.cached)
             self.cached = n
-        else:
+        elif self.cache_mode == "snapshot" and snap is not None and snap[0] <= n:
+            self._snap = snap
+            self._restore_snapshot()
+            self._snap = None
+        else:                            # recompute, or no usable snapshot (first block)
             self.cache = None
             self.cached = 0
 

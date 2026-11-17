@@ -1,11 +1,14 @@
-# Toy config for smoke tests: python scripts/make_toy_setup.py first.
+# Toy config for smoke tests: run python scripts/make_toy_setup.py first.
+# Drafter/target pairs. ASSUMPTION: Hugging Face model IDs below are our best guess
+# for the checkpoints Paudel et al. (2026) used -- confirm base vs instruct and exact
+# IDs against their paper/code before running baselines.
 pairs:
   qwen:
     drafter: toy/drafter
     target: toy/target
-    # If scripts/sanity_check.py reports crop != recompute (e.g. hybrid linear-attention
-    # layers), switch this to "recompute".
-    cache_mode: crop
+    # Qwen3.5 is hybrid (gated-delta linear attention + full attention): "auto" picks
+    # snapshot/restore. If sanity_check.py reports a MISMATCH, use "recompute".
+    cache_mode: auto
 
 # Matches Paudel et al. setup as described in our proposal (Sec. 5, B1).
 # ASSUMPTION: temperature 1.0 (the proposal does not state it).

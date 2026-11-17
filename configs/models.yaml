@@ -5,13 +5,13 @@ pairs:
   qwen:
     drafter: Qwen/Qwen3.5-0.8B
     target: Qwen/Qwen3.5-9B
-    # If scripts/sanity_check.py reports crop != recompute (e.g. hybrid linear-attention
-    # layers), switch this to "recompute".
-    cache_mode: crop
+    # Qwen3.5 is hybrid (gated-delta linear attention + full attention): "auto" picks
+    # snapshot/restore. If sanity_check.py reports a MISMATCH, use "recompute".
+    cache_mode: auto
   llama:
     drafter: meta-llama/Llama-3.2-1B        # gated: request access on HF first
     target: meta-llama/Llama-3.2-3B
-    cache_mode: crop
+    cache_mode: auto
 
 # Matches Paudel et al. setup as described in our proposal (Sec. 5, B1).
 # ASSUMPTION: temperature 1.0 (the proposal does not state it).

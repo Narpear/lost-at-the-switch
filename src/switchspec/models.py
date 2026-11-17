@@ -28,5 +28,5 @@ def load_pair(pair_cfg: dict, device: str = "cuda", dtype: str = "bfloat16"):
     target = AutoModelForCausalLM.from_pretrained(pair_cfg["target"], dtype=dt, device_map=device).eval()
     drafter = AutoModelForCausalLM.from_pretrained(pair_cfg["drafter"], dtype=dt, device_map=device).eval()
     V = shared_vocab_limit(tok, drafter, target)
-    mode = pair_cfg.get("cache_mode", "crop")
+    mode = pair_cfg.get("cache_mode", "auto")
     return tok, CachedLM(target, V, mode), NeuralDrafter(CachedLM(drafter, V, mode)), V
