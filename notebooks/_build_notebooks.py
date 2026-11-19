@@ -64,8 +64,8 @@ REPORT = code("""!python scripts/make_report.py
 from IPython.display import Image, display
 if os.path.exists('results/report/positional.png'): display(Image('results/report/positional.png'))""")
 
-prerana = [md("""# Prerana: models and runs (Thu Nov 19)
-Track status in the tracker sheet. Each **P** cell = one row in your tab.
+models_nb = [md("""# Models and runs
+Each **P** cell is one row in the tracker.
 Outputs go to the shared Drive folder `lost-at-the-switch/results/`.""")] + SETUP + [
 md("""## P1. Fast kernels + re-run the sanity check
 Then copy the new `c` from line [4] into the `C = ...` line in P5. Monday's c=0.69 was with slow fallback kernels."""),
@@ -73,7 +73,7 @@ KERNELS,
 code("""!python scripts/sanity_check.py --pair qwen 2>&1 | grep -v -E "falling back|Loading|Fetching|it/s" | tee results/sanity_qwen_fastkernels.txt"""),
 md("""## P2. Llama pair sanity check (only if HF access to Llama-3.2-1B and 3B is approved)"""),
 code("""!python scripts/sanity_check.py --pair llama 2>&1 | grep -v -E "Loading|Fetching|it/s" | tee results/sanity_llama.txt"""),
-md("""## P3. Exp 1: teacher-forced acceptance at switch points (needs Manjari's M1 LinCE data)
+md("""## P3. Exp 1: teacher-forced acceptance at switch points (needs the LinCE data from M1)
 ~10-30 min per pair. Up to 800 code-switched dev sentences each. Skips pairs already done."""),
 code(f"""for cfg in {PAIRS}:
     pair = cfg.replace('lid_', '')
@@ -81,7 +81,7 @@ code(f"""for cfg in {PAIRS}:
     !python scripts/run_positional.py --pair qwen --data data/raw/lince/{{cfg}}/dev.conll \\
         --out results/positional/qwen_{{pair}}_dev.jsonl --only-code-switched --limit 800 --skip-existing \\
         2>&1 | grep -v -E "falling back|Loading|it/s" | tail -25"""),
-md("""## P4. Make code-switched prompts (skipped if Manjari already made them)"""),
+md("""## P4. Make code-switched prompts (skipped if they already exist)"""),
 PROMPTS,
 md("""## P5. B1 on code-switched text: Qwen 0.8B drafter, gamma 2/3/4, 50 prompts per pair
 Raw continuation prompts (no chat template). Resumes automatically if Colab disconnects: just rerun the cell."""),
@@ -93,16 +93,16 @@ for cfg in {PAIRS}:
         --out results/specdec/qwen_b1_{{pair}}.jsonl --limit 50 --gammas 2 3 4 --skip-existing \\
         {{'--c ' + str(C) if C else ''}} 2>&1 | grep -v -E "falling back|Loading|it/s" | tail -30"""),
 md("""## P6. B1 reproduction on Nepali (overnight): FLORES English->Nepali translation, chat template
-Needs Manjari's M2 FLORES prompts. Paudel's own Nepali test set isn't released, so FLORES is our stand-in."""),
+Needs the FLORES prompts from M2. Paudel's own Nepali test set isn't released, so FLORES is our stand-in."""),
 code("""!python scripts/run_specdec.py --pair qwen --prompts data/processed/flores_translate_npi_Deva.jsonl \\
     --out results/specdec/qwen_b1_flores_en2ne.jsonl --limit 100 --gammas 2 3 4 --chat-template --skip-existing \\
     2>&1 | grep -v -E "falling back|Loading|it/s" | tail -30"""),
 md("## P7. Tables + figure for Friday"), REPORT,
 ]
 
-manjari = [md("""# Manjari: data and baselines (Thu Nov 19)
-Track status in the tracker sheet. Each **M** cell = one row in your tab.
-Outputs go to the shared Drive folder `lost-at-the-switch/` (shared by Prerana)."""),
+data_nb = [md("""# Data and baselines
+Each **M** cell is one row in the tracker.
+Outputs go to the shared Drive folder `lost-at-the-switch/`."""),
 md("""**One-time setup before cell S:**
 1. Accept the GitHub invite to `Narpear/lost-at-the-switch`, then make a **classic** token (github.com -> Settings -> Developer settings -> Tokens (classic), scope `repo`).
 2. Make a Hugging Face **Read** token, and click "Agree and access" on https://huggingface.co/datasets/openlanguagedata/flores_plus
@@ -120,19 +120,19 @@ md("""## M2. FLORES-200 monolingual controls + English->X translation prompts
 Needs the FLORES access click (setup step 2). Untested from our side: if it errors, paste the error to Claude."""),
 code("""!python scripts/fetch_flores.py --split devtest"""),
 md("""## M3. Switching-penalty control: teacher-forced acceptance on monolingual FLORES
-Same measurement as Prerana's P3 but on text with no switches. 500 sentences per language."""),
+Same measurement as P3 but on text with no switches. 500 sentences per language."""),
 code("""for lang in ['eng_Latn', 'spa_Latn', 'hin_Deva', 'npi_Deva']:
     print('=' * 20, lang)
     !python scripts/run_positional.py --pair qwen --data data/raw/flores/{lang}.conll \\
         --out results/positional/qwen_flores_{lang}.jsonl --limit 500 --skip-existing \\
         2>&1 | grep -v -E "falling back|Loading|it/s" | tail -12"""),
-md("## M4. Make code-switched prompts (shared with Prerana's P4; skipped if they exist)"), PROMPTS,
+md("## M4. Make code-switched prompts (same files as P4; skipped if they exist)"), PROMPTS,
 md("""## M5. Bigram drafter tables (B2), built from LinCE train with the Qwen tokenizer"""),
 code(f"""for cfg in {PAIRS}:
     pair = cfg.replace('lid_', '')
     !python scripts/build_ngram.py --pair qwen --n 2 --inputs data/raw/lince/{{cfg}}/train.conll \\
         --out results/ngram/qwen_{{pair}}_n2.pkl"""),
-md("""## M6. B2 on code-switched text: bigram drafter, gamma 2/3/4, same 50 prompts as Prerana's B1
+md("""## M6. B2 on code-switched text: bigram drafter, gamma 2/3/4, same 50 prompts as B1 (P5)
 Resumes automatically if Colab disconnects."""),
 code(f"""for cfg in {PAIRS}:
     pair = cfg.replace('lid_', '')
@@ -145,7 +145,7 @@ md("## M7. Tables + figure for Friday"), REPORT,
 
 meta = {"accelerator": "GPU", "colab": {"provenance": [], "gpuType": "A100"},
         "kernelspec": {"name": "python3", "display_name": "Python 3"}}
-for name, cells in [("01_prerana_runs.ipynb", prerana), ("02_manjari_runs.ipynb", manjari)]:
+for name, cells in [("01_models_runs.ipynb", models_nb), ("02_data_baselines.ipynb", data_nb)]:
     json.dump({"cells": cells, "metadata": meta, "nbformat": 4, "nbformat_minor": 0},
               open(f"notebooks/{name}", "w"), indent=1)
     print("wrote", name, len(cells), "cells")
