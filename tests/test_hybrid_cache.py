@@ -56,3 +56,17 @@ def test_text_vocab_size_handles_multimodal_config():
     cfg = Qwen3_5Config(text_config={"vocab_size": 123})
     assert text_vocab_size(cfg) == 123
     assert text_vocab_size(Qwen3_5TextConfig(vocab_size=77)) == 77
+
+
+def test_sanity_timing_feeds_one_token_per_step(hybrid_pair):
+    """Regression: the old c measurement re-prefilled the whole prompt on hybrid models."""
+    import importlib.util, pathlib, sys
+    scripts = pathlib.Path(__file__).parents[1] / "scripts"
+    sys.path.insert(0, str(scripts))
+    V, target, _ = hybrid_pair
+    spec = importlib.util.spec_from_file_location(
+        "sanity_check", scripts / "sanity_check.py")
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    lm = CachedLM(target, V)
+    t = mod.time_forward(lm, list(range(1, 21)), n=3)   # asserts one token per timed call
+    assert t > 0 and lm.cache_mode == "snapshot"
