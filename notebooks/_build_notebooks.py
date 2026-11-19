@@ -51,14 +51,27 @@ KERNELS = code("""# Fast kernels for Qwen3.5's linear-attention layers (results 
 
 PAIRS = "['lid_hineng', 'lid_spaeng', 'lid_nepeng']"
 
-PROMPTS = code(f"""# Code-switched continuation prompts from LinCE dev (first half of each code-switched sentence).
-# Same files for both of us; skipped if they already exist.
+PROMPTS = code(f"""# Code-switched prompts from LinCE dev, in two styles with the same ids:
+#   *_dev_prompts.jsonl            raw continuation (the model drifts off code-switching)
+#   *_dev_prompts_instruct.jsonl   "continue in the same mixed style", used with --chat-template
 for cfg in {PAIRS}:
-    out = f'data/processed/{{cfg}}_dev_prompts.jsonl'
-    if not os.path.exists(out):
-        !python scripts/make_prompts.py data/raw/lince/{{cfg}}/dev.conll {{out}}
-    else:
-        print(out, 'exists')""")
+    for style, suffix in [('continuation', ''), ('instruct', '_instruct')]:
+        out = f'data/processed/{{cfg}}_dev_prompts{{suffix}}.jsonl'
+        if not os.path.exists(out):
+            !python scripts/make_prompts.py data/raw/lince/{{cfg}}/dev.conll {{out}} --style {{style}}
+        else:
+            print(out, 'exists')""")
+
+CHECK = lambda tag, extra: code(f"""# Quick check on 5 prompts per pair: do generations stay code-switched?
+# Compare with real LinCE text (--field reference) and, if present, the raw-continuation runs.
+for cfg in {PAIRS}:
+    pair = cfg.replace('lid_', '')
+    print('=' * 20, pair)
+    !python scripts/run_specdec.py --pair qwen {extra} --prompts data/processed/{{cfg}}_dev_prompts_instruct.jsonl --out results/checks/{tag}_{{pair}}_instruct.jsonl --limit 5 --gammas 3 --chat-template --skip-existing 2>&1 | grep -v -E "falling back|Loading|it/s" | tail -3
+    !python scripts/cs_check.py --train data/raw/lince/{{cfg}}/train.conll --field reference data/processed/{{cfg}}_dev_prompts.jsonl
+    raw = f'results/specdec/qwen_{tag}_{{pair}}.jsonl'          # raw-continuation run, if one exists
+    raw = raw if os.path.exists(raw) else ''
+    !python scripts/cs_check.py --train data/raw/lince/{{cfg}}/train.conll --show 3 results/checks/{tag}_{{pair}}_instruct.jsonl {{raw}}""")
 
 REPORT = code("""!python scripts/make_report.py
 from IPython.display import Image, display
@@ -83,15 +96,16 @@ code(f"""for cfg in {PAIRS}:
         2>&1 | grep -v -E "falling back|Loading|it/s" | tail -25"""),
 md("""## P4. Make code-switched prompts (skipped if they already exist)"""),
 PROMPTS,
-md("""## P5. B1 on code-switched text: Qwen 0.8B drafter, gamma 2/3/4, 50 prompts per pair
-Raw continuation prompts (no chat template). Resumes automatically if Colab disconnects: just rerun the cell."""),
+md("""## P5. B1 on code-switched text: Qwen 0.8B drafter, instruct prompts + chat template
+First the 5-prompt check: if most outputs have both languages and a few switches per 100 words,
+run the full cell below it (gamma 2/3/4, 50 prompts per pair). Resumes automatically if Colab disconnects."""),
+CHECK("b1", ""),
 code(f"""C = None   # <- paste c from P1, e.g. C = 0.12
 for cfg in {PAIRS}:
     pair = cfg.replace('lid_', '')
     print('=' * 20, pair)
-    !python scripts/run_specdec.py --pair qwen --prompts data/processed/{{cfg}}_dev_prompts.jsonl \\
-        --out results/specdec/qwen_b1_{{pair}}.jsonl --limit 50 --gammas 2 3 4 --skip-existing \\
-        {{'--c ' + str(C) if C else ''}} 2>&1 | grep -v -E "falling back|Loading|it/s" | tail -30"""),
+    !python scripts/run_specdec.py --pair qwen --prompts data/processed/{{cfg}}_dev_prompts_instruct.jsonl --out results/specdec/qwen_b1_{{pair}}_instruct.jsonl --limit 50 --gammas 2 3 4 --chat-template --skip-existing {{'--c ' + str(C) if C else ''}} 2>&1 | grep -v -E "falling back|Loading|it/s" | tail -30
+    !python scripts/cs_check.py --train data/raw/lince/{{cfg}}/train.conll results/specdec/qwen_b1_{{pair}}_instruct.jsonl"""),
 md("""## P6. B1 reproduction on Nepali (overnight): FLORES English->Nepali translation, chat template
 Needs the FLORES prompts from M2. Paudel's own Nepali test set isn't released, so FLORES is our stand-in."""),
 code("""!python scripts/run_specdec.py --pair qwen --prompts data/processed/flores_translate_npi_Deva.jsonl \\
@@ -132,14 +146,14 @@ code(f"""for cfg in {PAIRS}:
     pair = cfg.replace('lid_', '')
     !python scripts/build_ngram.py --pair qwen --n 2 --inputs data/raw/lince/{{cfg}}/train.conll \\
         --out results/ngram/qwen_{{pair}}_n2.pkl"""),
-md("""## M6. B2 on code-switched text: bigram drafter, gamma 2/3/4, same 50 prompts as B1 (P5)
-Resumes automatically if Colab disconnects."""),
+md("""## M6. B2 on code-switched text: bigram drafter, instruct prompts + chat template (same prompts as P5)
+5-prompt check first, then the full run. Resumes automatically if Colab disconnects."""),
+CHECK("b2", "--ngram results/ngram/qwen_{pair}_n2.pkl"),
 code(f"""for cfg in {PAIRS}:
     pair = cfg.replace('lid_', '')
     print('=' * 20, pair)
-    !python scripts/run_specdec.py --pair qwen --ngram results/ngram/qwen_{{pair}}_n2.pkl \\
-        --prompts data/processed/{{cfg}}_dev_prompts.jsonl --out results/specdec/qwen_b2_{{pair}}.jsonl \\
-        --limit 50 --gammas 2 3 4 --skip-existing 2>&1 | grep -v -E "falling back|Loading|it/s" | tail -30"""),
+    !python scripts/run_specdec.py --pair qwen --ngram results/ngram/qwen_{{pair}}_n2.pkl --prompts data/processed/{{cfg}}_dev_prompts_instruct.jsonl --out results/specdec/qwen_b2_{{pair}}_instruct.jsonl --limit 50 --gammas 2 3 4 --chat-template --skip-existing 2>&1 | grep -v -E "falling back|Loading|it/s" | tail -30
+    !python scripts/cs_check.py --train data/raw/lince/{{cfg}}/train.conll results/specdec/qwen_b2_{{pair}}_instruct.jsonl"""),
 md("## M7. Tables + figure for Friday"), REPORT,
 ]
 
