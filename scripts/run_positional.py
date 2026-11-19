@@ -28,6 +28,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--only-code-switched", action="store_true")
+    ap.add_argument("--only-monolingual", action="store_true",
+                    help="same-domain control: sentences whose language words are all one language")
     ap.add_argument("--temperature", type=float, default=None)
     ap.add_argument("--drafter-ckpt", default=None, help="distilled drafter dir (Approach A / B3)")
     ap.add_argument("--skip-existing", action="store_true")
@@ -45,6 +47,9 @@ def main():
     sc = sampling_from(cfg, a.temperature)
     win = cfg["switch_window"]
     sents = read_lince_conll(a.data)
+    if a.only_monolingual:
+        from switchspec.lid import is_monolingual
+        sents = [s for s in sents if is_monolingual(s.tags)]
     if a.only_code_switched:
         sents = [s for s in sents if len({t for t in s.tags if t in ("lang1", "lang2")}) > 1]
     sents = sents[: a.limit]

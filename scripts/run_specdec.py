@@ -85,7 +85,7 @@ def main():
                         continue
                     r = speculative_generate(target, drafter, ids, max_new, gamma, sc, seed, eos, stop)
                     row = {"id": pr["id"], "gamma": gamma, "seed": seed,
-                           "text": tok.decode(r.tokens), "alpha": r.acceptance_rate,
+                           "text": tok.decode(r.tokens, skip_special_tokens=True), "alpha": r.acceptance_rate,
                            "draft_efficiency": r.draft_efficiency, "tpt": r.tokens_per_target_call,
                            **r.to_dict()}
                     rows.append(row)

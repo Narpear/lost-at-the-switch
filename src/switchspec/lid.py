@@ -86,6 +86,27 @@ def switch_categories(tags: list[str], k_before: int = 1, k_after: int = 2) -> l
     return cats
 
 
+def switch_distance(tags: list[str]) -> list:
+    """Signed distance, in language-tagged words, from each word to the nearest switch:
+    0 = the switch word, -1 = the language word just before it, +1 = just after, ...
+    None for words outside lang1/lang2 and for sentences with no switch.
+    Ties go to the switch before the word (positive distance)."""
+    lang_idx = [i for i, t in enumerate(tags) if t in LANG_TAGS]
+    sw = [j for j in range(1, len(lang_idx)) if tags[lang_idx[j]] != tags[lang_idx[j - 1]]]
+    out = [None] * len(tags)
+    if not sw:
+        return out
+    for j, i in enumerate(lang_idx):
+        d = min((j - s for s in sw), key=lambda x: (abs(x), x < 0))
+        out[i] = d
+    return out
+
+
+def is_monolingual(tags: list[str]) -> bool:
+    langs = {t for t in tags if t in LANG_TAGS}
+    return len(langs) == 1
+
+
 def switch_stats(sents: Iterable[Sentence]) -> dict:
     n_words = n_lang = n_switch = n_cs_sents = n_sents = 0
     for s in sents:

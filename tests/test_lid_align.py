@@ -58,3 +58,14 @@ def test_label_tokens_alignment(bpe_tok):
     assert all(l.category == SWITCH for l in by_word[2])
     assert len(by_word[2]) > 1                        # unseen word split into subtokens
     assert [l.word_start for l in by_word[2]] == [True] + [False] * (len(by_word[2]) - 1)
+
+
+def test_switch_distance_and_monolingual():
+    from switchspec.lid import is_monolingual, switch_distance
+    #        a(l2)  b(l2)  c(l1)  ,(other) d(l1)  e(l1)  f(l2)
+    tags = ["lang2", "lang2", "lang1", "other", "lang1", "lang1", "lang2"]
+    #  language words: a b c d e f ; switches at c (j=2) and f (j=5)
+    assert switch_distance(tags) == [-2, -1, 0, None, 1, -1, 0]
+    assert switch_distance(["lang1", "ne", "lang1"]) == [None, None, None]
+    assert is_monolingual(["lang1", "other", "lang1"]) and not is_monolingual(tags)
+    assert not is_monolingual(["other", "ne"])
