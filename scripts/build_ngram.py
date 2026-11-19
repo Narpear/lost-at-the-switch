@@ -12,6 +12,7 @@ from pathlib import Path
 
 from _common import load_config
 from switchspec.lid import read_lince_conll
+from switchspec.models import text_vocab_size
 from switchspec.ngram import NgramDrafter
 
 
@@ -36,8 +37,8 @@ def main():
     a = ap.parse_args()
     pc = load_config(a.config)["pairs"][a.pair]
     tok = AutoTokenizer.from_pretrained(pc["target"])
-    V = min(len(tok), AutoConfig.from_pretrained(pc["target"]).vocab_size,
-            AutoConfig.from_pretrained(pc["drafter"]).vocab_size)
+    V = min(len(tok), text_vocab_size(AutoConfig.from_pretrained(pc["target"])),
+            text_vocab_size(AutoConfig.from_pretrained(pc["drafter"])))
     seqs = (tok(t, add_special_tokens=True)["input_ids"] for t in iter_texts(a.inputs))
     d = NgramDrafter(a.n, V).fit(seqs)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

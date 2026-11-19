@@ -12,10 +12,17 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def text_vocab_size(config) -> int:
+    """vocab_size of a model config. Multimodal configs such as Qwen3_5Config keep it
+    under text_config, so go through get_text_config() when it exists."""
+    cfg = config.get_text_config() if hasattr(config, "get_text_config") else config
+    return cfg.vocab_size
+
+
 def shared_vocab_limit(tok, drafter_model, target_model) -> int:
     """Logit dims can be padded beyond the real vocab and differ between sizes;
     only compare over the shared, real part."""
-    return min(len(tok), drafter_model.config.vocab_size, target_model.config.vocab_size)
+    return min(len(tok), text_vocab_size(drafter_model.config), text_vocab_size(target_model.config))
 
 
 def load_pair(pair_cfg: dict, device: str = "cuda", dtype: str = "bfloat16"):

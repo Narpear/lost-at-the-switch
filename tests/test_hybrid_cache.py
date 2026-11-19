@@ -47,3 +47,12 @@ def test_hybrid_greedy_matches_target_with_partial_acceptance(hybrid_pair, gamma
         recs += res.records
     n_acc = sum(r.accepted for r in recs)
     assert 0 < n_acc < len(recs), "test should exercise both accept and reject paths"
+
+
+def test_text_vocab_size_handles_multimodal_config():
+    """Qwen3_5Config (multimodal) has no top-level vocab_size; it lives in text_config."""
+    from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5Config, Qwen3_5TextConfig
+    from switchspec.models import text_vocab_size
+    cfg = Qwen3_5Config(text_config={"vocab_size": 123})
+    assert text_vocab_size(cfg) == 123
+    assert text_vocab_size(Qwen3_5TextConfig(vocab_size=77)) == 77
