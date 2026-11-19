@@ -43,8 +43,9 @@ def positional_records(sent: Sentence, sent_id, tokenizer, target, drafter, voca
     ld = full_logits(drafter, ids, vocab_limit)
     P = len(prefix)
     # logits at index t-1 predict token t
-    p = warp_to_probs(lt[P - 1: len(ids) - 1], cfg)
-    q = warp_to_probs(ld[P - 1: len(ids) - 1], cfg)
+    ctx = [ids[:t] for t in range(P, len(ids))]          # context before each predicted token
+    p = warp_to_probs(lt[P - 1: len(ids) - 1], cfg, prev=ctx)
+    q = warp_to_probs(ld[P - 1: len(ids) - 1], cfg, prev=ctx)
     tvs, kls = tv(p, q), kl(p, q)
     rows = []
     for j, lab in enumerate(labels):

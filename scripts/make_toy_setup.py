@@ -39,6 +39,8 @@ def main():
         vocab_size=320, special_tokens=["<s>", "</s>"],
         initial_alphabet=pre_tokenizers.ByteLevel.alphabet()))
     hf_tok = PreTrainedTokenizerFast(tokenizer_object=tok, bos_token="<s>", eos_token="</s>")
+    hf_tok.chat_template = ("{% for m in messages %}<s>{{ m['content'] }}{% endfor %}"
+                            "{% if add_generation_prompt %} reply :{% endif %}")
     V = len(hf_tok)
     for name, hidden, layers, seed in [("target", 64, 2, 0), ("drafter", 32, 1, 1)]:
         torch.manual_seed(seed)

@@ -13,12 +13,15 @@ pairs:
     target: meta-llama/Llama-3.2-3B
     cache_mode: auto
 
-# Matches Paudel et al. setup as described in our proposal (Sec. 5, B1).
-# ASSUMPTION: temperature 1.0 (the proposal does not state it).
+# Paudel et al. (2026, arXiv 2605.30580): top-k 100, top-p 0.9, repetition penalty 1.1
+# over a 16-token window, max 128 new tokens, chat templates, gamma swept 2-4.
+# ASSUMPTION: temperature 1.0 (their paper only says "sampling-based inference").
 sampling:
   temperature: 1.0
   top_k: 100
   top_p: 0.9
+  repetition_penalty: 1.1
+  rep_window: 16
 gammas: [2, 3, 4]
 max_new_tokens: 128
 seeds: [0, 1, 2, 3, 4]

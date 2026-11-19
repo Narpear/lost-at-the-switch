@@ -26,19 +26,46 @@ class SamplingConfig:
     temperature: float = 1.0
     top_k: int = 0          # 0 = off
     top_p: float = 1.0      # 1.0 = off
+    repetition_penalty: float = 1.0   # 1.0 = off; Paudel et al. use 1.1
+    rep_window: int = 16              # penalise tokens among the last rep_window ids
 
     @property
     def greedy(self) -> bool:
         return self.temperature == 0
 
 
-def warp_to_probs(logits: torch.Tensor, cfg: SamplingConfig) -> torch.Tensor:
-    """logits [..., V] -> probs [..., V] (float64) after temperature/top-k/top-p.
+def apply_repetition_penalty(logits: torch.Tensor, prev: Sequence[int], cfg: SamplingConfig) -> torch.Tensor:
+    """HF-style penalty on a single row [V]: positive logits / pen, negative * pen,
+    for tokens that occur in the last cfg.rep_window ids of the context."""
+    if cfg.repetition_penalty == 1.0 or not prev:
+        return logits
+    window = prev[-cfg.rep_window:] if cfg.rep_window else prev
+    ids = torch.tensor(sorted({t for t in window if t < logits.shape[-1]}), dtype=torch.long)
+    if ids.numel() == 0:
+        return logits
+    vals = logits[ids]
+    logits = logits.clone()
+    logits[ids] = torch.where(vals > 0, vals / cfg.repetition_penalty, vals * cfg.repetition_penalty)
+    return logits
 
-    The same warp is applied to drafter and target, so speculative sampling is
-    lossless w.r.t. the *warped* target distribution (same convention as HF).
+
+def warp_to_probs(logits: torch.Tensor, cfg: SamplingConfig, prev=None) -> torch.Tensor:
+    """logits [..., V] -> probs [..., V] (float64) after repetition penalty /
+    temperature / top-k / top-p.
+
+    prev: context ids for the repetition penalty -- a list[int] for 1-D logits, or a
+    list of list[int] (one context per row) for 2-D logits. The identical warp
+    (including the penalty, computed from each position's own context) is applied
+    to drafter and target, so speculative sampling stays lossless w.r.t. the warped
+    target distribution.
     """
     logits = logits.double()
+    if prev is not None and cfg.repetition_penalty != 1.0:
+        if logits.dim() == 1:
+            logits = apply_repetition_penalty(logits, prev, cfg)
+        else:
+            logits = torch.stack([apply_repetition_penalty(row, pr, cfg)
+                                  for row, pr in zip(logits, prev)])
     if cfg.greedy:
         idx = logits.argmax(-1, keepdim=True)
         return torch.zeros_like(logits).scatter_(-1, idx, 1.0)
@@ -235,7 +262,7 @@ class NeuralDrafter:
         toks, qs = [], []
         cur = list(seq)
         for step in range(gamma):
-            q = warp_to_probs(self.lm.forward_new(cur)[-1], cfg)
+            q = warp_to_probs(self.lm.forward_new(cur)[-1], cfg, prev=cur)
             t = sample(q, gen)
             toks.append(t)
             qs.append(q)
@@ -317,7 +344,7 @@ def speculative_generate(target: CachedLM, drafter: Drafter, prompt_ids: Sequenc
             [], torch.empty(0, target.V, dtype=torch.float64))
         g = len(drafts)
         logits = target.forward_new(seq + drafts)[-(g + 1):]
-        p = warp_to_probs(logits, cfg)
+        p = warp_to_probs(logits, cfg, prev=[seq + drafts[:i] for i in range(g + 1)])
         res.n_target_calls += 1
         res.n_draft_tokens += g
 
@@ -354,7 +381,7 @@ def autoregressive_generate(target: CachedLM, prompt_ids: Sequence[int], max_new
     seq = list(prompt_ids)
     out = []
     for _ in range(max_new_tokens):
-        p = warp_to_probs(target.forward_new(seq)[-1], cfg)
+        p = warp_to_probs(target.forward_new(seq)[-1], cfg, prev=seq)
         t = sample(p, gen)
         out.append(t)
         seq.append(t)

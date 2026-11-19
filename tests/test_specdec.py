@@ -97,7 +97,8 @@ def exact_joint(target, V, prompt, L, cfg):
         ids = torch.tensor([list(prompt) + list(cont)])
         with torch.no_grad():
             logits = target(ids).logits[0, len(prompt) - 1: len(prompt) + L - 1, :V]
-        p = warp_to_probs(logits, cfg)
+        ctx = [list(prompt) + list(cont[:i]) for i in range(L)]
+        p = warp_to_probs(logits, cfg, prev=ctx)
         probs[cont] = float(torch.prod(p[torch.arange(L), torch.tensor(cont)]))
     return probs
 
@@ -107,10 +108,10 @@ def tv_dict(a, b):
     return 0.5 * sum(abs(a.get(k, 0) - b.get(k, 0)) for k in keys)
 
 
-@pytest.mark.parametrize("drafter_kind", ["neural", "ngram"])
-def test_sampling_is_lossless(small_vocab_pair, drafter_kind):
+@pytest.mark.parametrize("drafter_kind,rep", [("neural", 1.0), ("ngram", 1.0), ("neural", 1.5)])
+def test_sampling_is_lossless(small_vocab_pair, drafter_kind, rep):
     V, target, drafter = small_vocab_pair
-    cfg = SamplingConfig(temperature=1.0, top_k=4)
+    cfg = SamplingConfig(temperature=1.0, top_k=4, repetition_penalty=rep, rep_window=2)
     prompt, L, N = [1, 2], 3, 3000
     exact = exact_joint(target, V, prompt, L, cfg)
     t = CachedLM(target, V)
@@ -161,3 +162,25 @@ def test_adaptive_stop_reduces_draft_length(toy_pair):
     short = speculative_generate(t, d, [1, 2], 30, 4, cfg, seed=0, stop_fn=entropy_stop(0.0))
     assert max(r.draft_idx for r in short.records) == 0
     assert short.n_draft_tokens < full.n_draft_tokens
+
+
+def test_repetition_penalty_matches_hf():
+    from transformers import RepetitionPenaltyLogitsProcessor
+    from switchspec.specdec import apply_repetition_penalty
+    torch.manual_seed(0)
+    logits = torch.randn(10)
+    prev = [1, 3, 3, 7]
+    ours = apply_repetition_penalty(logits, prev, SamplingConfig(repetition_penalty=1.3, rep_window=0))
+    hf = RepetitionPenaltyLogitsProcessor(1.3)(torch.tensor([prev]), logits[None].clone())[0]
+    assert torch.allclose(ours, hf)
+    windowed = apply_repetition_penalty(logits, prev, SamplingConfig(repetition_penalty=1.3, rep_window=2))
+    assert windowed[1] == logits[1] and windowed[7] != logits[7]
+
+
+@pytest.mark.parametrize("gamma", [2, 4])
+def test_greedy_with_repetition_penalty_matches_target(toy_pair, gamma):
+    V, target, drafter = toy_pair
+    t, d = wrap(target, drafter, V)
+    cfg = SamplingConfig(temperature=0, repetition_penalty=1.1, rep_window=16)
+    ref = autoregressive_generate(t, [1, 5, 9], 24, cfg)
+    assert speculative_generate(t, d, [1, 5, 9], 24, gamma, cfg).tokens == ref

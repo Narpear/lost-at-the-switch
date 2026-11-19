@@ -30,8 +30,12 @@ def main():
     ap.add_argument("--only-code-switched", action="store_true")
     ap.add_argument("--temperature", type=float, default=None)
     ap.add_argument("--drafter-ckpt", default=None, help="distilled drafter dir (Approach A / B3)")
+    ap.add_argument("--skip-existing", action="store_true")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
+    import os
+    if a.skip_existing and os.path.exists(a.out):
+        print(f"{a.out} exists, skipping"); return
 
     cfg, (tok, target, drafter, V) = get_pair(a.config, a.pair, a.device)
     if a.drafter_ckpt:
